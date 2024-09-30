@@ -100,6 +100,20 @@ function sanitize(target, options = {}) {
   return _sanitize(target, options).target;
 }
 
+function deepCopy(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(deepCopy);
+  }
+
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [key, deepCopy(value)]),
+  );
+}
+
 /**
  * @param {{replaceWith?: string, onSanitize?: function, dryRun?: boolean}} options
  * @returns {function}
@@ -107,7 +121,7 @@ function sanitize(target, options = {}) {
 function middleware(options = {}) {
   const hasOnSanitize = typeof options.onSanitize === 'function';
   return function (req, res, next) {
-    ['body', 'params', 'headers', 'query'].forEach(function (key) {
+    ['body', 'params', 'headers'].forEach(function (key) {
       if (req[key]) {
         const { target, isSanitized } = _sanitize(req[key], options);
         req[key] = target;
@@ -119,6 +133,24 @@ function middleware(options = {}) {
         }
       }
     });
+
+    if (req.query) {
+      const sanitizedQuery = _sanitize(deepCopy(req.query), options);
+      if (sanitizedQuery.isSanitized) {
+        Object.defineProperty(req, 'query', {
+          value: sanitizedQuery.target,
+          writable: false,
+          configurable: true,
+          enumerable: true,
+        });
+        if (hasOnSanitize) {
+          options.onSanitize({
+            req,
+            key: 'query',
+          });
+        }
+      }
+    }
     next();
   };
 }
